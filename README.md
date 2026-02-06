@@ -72,6 +72,23 @@ This separation of responsibilities reflects real-world enterprise systems, wher
 
 ---
 
+## Screenshots
+
+### Admin Interface
+![Admin](assets/admin.png)
+
+### User Interface
+![User](assets/user.png)
+
+### Sources of Generated Answer
+![Sources](assets/sources.png)
+
+### Analysis of Generated Answer
+![Analysis](assets/analysis.png)
+
+
+---
+
 ## Key Capabilities
 
 - PDF ingestion and text extraction  
