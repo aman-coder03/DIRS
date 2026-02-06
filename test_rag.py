@@ -1,12 +1,12 @@
 from rag_engine import build_index, query_index
 
-# -------- ADMIN SIDE --------
+# ADMIN SIDE
 build_index(
-    pdf_path=r"C:\Users\Aman Srivastava\Desktop\Programs\Projects\RAG-Project\data\test1.pdf",   # change to your actual file
+    pdf_path=r"C:\Users\Aman Srivastava\Desktop\Programs\Projects\DIRS\data\test1.pdf",   # change to your actual file
     embedding_model="MiniLM"
 )
 
-# -------- USER SIDE --------
+# USER SIDE
 answer = query_index(
     document_name="test1",       # filename without .pdf
     question="Which institution is working on ramjet tech?",
