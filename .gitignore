@@ -6,36 +6,18 @@ env/
 __pycache__/
 *.pyc
 
-# Vector DB & storage
+# Data & generated folders
+data/
+results/
 storage/
+uploaded_docs/
+
+# Vector database files
 *.faiss
 *.sqlite
-
-# Uploaded docs
-uploaded_docs/
 
 # Environment variables
 .env
 
 # OS files
 .DS_Store
-
-# Virtual env
-venv/
-env/
-
-# Python cache
-__pycache__/
-*.pyc
-
-# Data folders
-data/
-results/
-storage/
-
-# Vector DB
-*.faiss
-*.sqlite
-
-# Env vars
-.env
