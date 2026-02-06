@@ -17,10 +17,7 @@ from models.llm import generate_answer
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STORAGE_PATH = os.path.join(BASE_DIR, "storage")
 
-
-# ==========================================================
 # ADMIN SIDE
-# ==========================================================
 def build_index(
     pdf_path,
     embedding_model,
@@ -37,7 +34,7 @@ def build_index(
     document_name = os.path.splitext(os.path.basename(pdf_path))[0]
     document_folder = os.path.join(STORAGE_PATH, document_name)
 
-    # 🔥 Overwrite protection
+    # Overwrite protection
     if os.path.exists(document_folder):
         raise Exception(
             f"Index already exists for '{document_name}'. "
@@ -50,19 +47,17 @@ def build_index(
     print(f"Using Embedding Model: {embedding_model}")
     print(f"Using Vector DB: {vector_db}")
 
-    # 1️⃣ Load PDF
+    # Load PDF
     text = load_pdf(pdf_path)
 
-    # 2️⃣ Chunk
+    # Chunk
     chunks = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
 
-    # 3️⃣ Embed
+    # Embed
     embeddings = embed(chunks, model_name=embedding_model)
     embeddings = np.array(embeddings).astype("float32")
 
-    # ==========================================================
     # VECTOR DATABASE SELECTION
-    # ==========================================================
     if vector_db == "FAISS":
 
         dim = embeddings.shape[1]
@@ -87,11 +82,11 @@ def build_index(
     else:
         raise ValueError("Unsupported vector database selected.")
 
-    # 4️⃣ Save chunks (for FAISS retrieval)
+    # Save chunks (for FAISS retrieval)
     with open(os.path.join(document_folder, "chunks.json"), "w", encoding="utf-8") as f:
         json.dump(chunks, f)
 
-    # 5️⃣ Save metadata
+    # Save metadata
     metadata = {
         "embedding_model": embedding_model,
         "vector_db": vector_db,
@@ -106,9 +101,7 @@ def build_index(
     print("Index built and saved successfully.")
 
 
-# ==========================================================
 # USER SIDE
-# ==========================================================
 def query_index(document_name, question, llm_model="llama3", top_k=3):
     """
     Loads stored index and answers question.
@@ -129,13 +122,13 @@ def query_index(document_name, question, llm_model="llama3", top_k=3):
     embedding_model = metadata["embedding_model"]
     vector_db = metadata["vector_db"]
 
-    # ---------------- EMBEDDING QUERY ----------------
+    # EMBEDDING QUERY
     embed_start = time.time()
     query_embedding = embed([question], model_name=embedding_model)[0]
     query_embedding = np.array([query_embedding]).astype("float32")
     embedding_time = time.time() - embed_start
 
-    # ---------------- RETRIEVAL ----------------
+    # RETRIEVAL
     retrieval_start = time.time()
 
     if vector_db == "FAISS":
@@ -166,7 +159,7 @@ def query_index(document_name, question, llm_model="llama3", top_k=3):
 
     retrieval_time = time.time() - retrieval_start
 
-    # ---------------- GENERATION ----------------
+    # GENERATION
     context = "\n".join(retrieved_chunks)
 
     prompt = f"""
