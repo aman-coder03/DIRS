@@ -37,6 +37,41 @@ This improves:
 
 ---
 
+## User Roles
+
+DIRS follows a role-based interaction model to simulate real-world document intelligence systems.
+
+### 1. Admin (Document Manager)
+
+The Admin is responsible for building and maintaining the knowledge base.
+
+Responsibilities include:
+
+- Uploading PDF documents
+- Triggering document parsing and chunking
+- Generating embeddings
+- Updating the vector database
+- Managing document storage
+
+The Admin role ensures that the system’s knowledge base remains accurate, structured, and searchable.
+
+### 2. User (Knowledge Consumer)
+
+The Search User interacts with the system to retrieve information.
+
+Responsibilities include:
+
+- Asking natural language questions
+- Retrieving relevant document context
+- Receiving grounded, context-aware responses
+- Exploring information from uploaded documents
+
+The Search User does not modify the database but relies on the indexed knowledge prepared by the Admin.
+
+This separation of responsibilities reflects real-world enterprise systems, where document ingestion and document consumption are handled independently.
+
+---
+
 ## Key Capabilities
 
 - PDF ingestion and text extraction  
