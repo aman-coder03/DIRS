@@ -9,9 +9,14 @@ from chromadb.config import Settings
 
 from rag.pdf_loader import load_pdf
 from rag.chunker import chunk_text
+from rag.bm25_retriever import BM25Retriever
+from rag.bm25_retriever import tokenize
 from models.embedding import embed
 from models.llm import generate_answer
 
+BM25_CACHE = {}
+FAISS_CACHE = {}
+CHUNKS_CACHE = {}
 
 # Always create storage relative to this file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +57,12 @@ def build_index(
 
     # Chunk
     chunks = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+    
+    # Save tokenized chunks for BM25
+    tokenized_chunks = [tokenize(chunk) for chunk in chunks]
+
+    with open(os.path.join(document_folder, "tokenized_chunks.json"), "w", encoding="utf-8") as f:
+        json.dump(tokenized_chunks, f)
 
     # Embed
     embeddings = embed(chunks, model_name=embedding_model)
@@ -133,14 +144,77 @@ def query_index(document_name, question, llm_model="llama3", top_k=3):
 
     if vector_db == "FAISS":
 
-        index_path = os.path.join(document_folder, "index.faiss")
-        index = faiss.read_index(index_path)
+        # FAISS CACHING
+        if document_name not in FAISS_CACHE:
+            index_path = os.path.join(document_folder, "index.faiss")
+            FAISS_CACHE[document_name] = faiss.read_index(index_path)
 
-        with open(os.path.join(document_folder, "chunks.json"), "r", encoding="utf-8") as f:
-            chunks = json.load(f)
+        index = FAISS_CACHE[document_name]
 
+        if document_name not in CHUNKS_CACHE:
+            with open(os.path.join(document_folder, "chunks.json"), "r", encoding="utf-8") as f:
+                CHUNKS_CACHE[document_name] = json.load(f)
+
+        chunks = CHUNKS_CACHE[document_name]
+
+        # VECTOR RETRIEVAL
         distances, indices = index.search(query_embedding, top_k)
-        retrieved_chunks = [chunks[i] for i in indices[0]]
+        vector_indices = indices[0]
+        vector_distances = distances[0]
+
+        # Convert L2 distance → similarity score
+        vector_scores = {
+            chunks[idx]: 1 / (1 + dist)
+            for idx, dist in zip(vector_indices, vector_distances)
+        }
+
+        # BM25 RETRIEVAL
+        # BM25 CACHING
+        if document_name not in BM25_CACHE:
+
+            # Load tokenized chunks
+            with open(os.path.join(document_folder, "tokenized_chunks.json"), "r", encoding="utf-8") as f:
+                tokenized_chunks = json.load(f)
+
+            BM25_CACHE[document_name] = BM25Retriever(
+                documents=chunks,
+                tokenized_docs=tokenized_chunks
+            )
+
+        bm25 = BM25_CACHE[document_name]
+        bm25_results = bm25.retrieve(question, top_k=top_k)
+
+        # Normalize BM25 scores
+        if bm25_results:
+            max_bm25 = max(score for _, score in bm25_results)
+        else:
+            max_bm25 = 1
+
+        bm25_scores = {
+            chunk: (score / max_bm25) if max_bm25 > 0 else 0
+            for chunk, score in bm25_results
+        }
+
+        # HYBRID MERGE
+        combined_scores = {}
+
+        all_chunks = set(vector_scores.keys()) | set(bm25_scores.keys())
+
+        for chunk in all_chunks:
+            v_score = vector_scores.get(chunk, 0)
+            b_score = bm25_scores.get(chunk, 0)
+
+            # Weighted fusion (tune weights later)
+            combined_scores[chunk] = 0.6 * v_score + 0.4 * b_score
+
+        # Sort final
+        sorted_chunks = sorted(
+            combined_scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        retrieved_chunks = [chunk for chunk, _ in sorted_chunks[:top_k]]
 
     elif vector_db == "Chroma":
 

@@ -162,4 +162,3 @@ if menu == "User":
 
                     except Exception as e:
                         st.error(str(e))
-
