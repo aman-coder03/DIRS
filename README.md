@@ -17,7 +17,10 @@ When a document is uploaded:
 2. The extracted text is divided into meaningful chunks.
 3. Each chunk is converted into a numerical vector representation using an embedding model.
 4. These vectors are stored in a vector database.
-5. When a user asks a question, the system retrieves the most relevant chunks using semantic similarity.
+5. When a user asks a question, the system retrieves relevant chunks using a hybrid retrieval strategy:
+   - Semantic search using vector similarity (FAISS / Chroma)
+   - Keyword-based ranking using BM25
+   - Weighted score fusion for improved relevance
 6. The retrieved content is passed to a language model to generate a final answer.
 
 This enables intelligent question-answering over private documents.
@@ -90,13 +93,16 @@ This separation of responsibilities reflects real-world enterprise systems, wher
 
 ## Key Capabilities
 
-- PDF ingestion and text extraction  
-- Text chunking for structured retrieval  
-- Embedding-based semantic search  
-- Vector database integration (FAISS / Chroma)  
-- Modular RAG pipeline design  
-- Experiment logging for retrieval evaluation  
-- Extensible architecture for hybrid retrieval and reranking  
+- PDF ingestion and structured text extraction
+- Intelligent text chunking for retrieval optimization
+- Hybrid retrieval pipeline combining:
+  - Semantic vector search (FAISS / Chroma)
+  - Keyword-based ranking (BM25)
+  - Weighted score fusion for improved relevance
+- In-memory caching of FAISS indices and BM25 retrievers for reduced query latency
+- Modular RAG architecture with clear separation of ingestion, retrieval, and generation layers
+- Performance tracking and experiment logging for retrieval and generation benchmarking
+- Extensible design supporting future upgrades such as reranking, advanced chunking strategies, and evaluation frameworks
 
 ---
 
@@ -105,8 +111,10 @@ This separation of responsibilities reflects real-world enterprise systems, wher
 When a query is asked:
 
 - The query is converted into an embedding vector.
-- The vector database searches for document chunks that are semantically similar.
-- The most relevant chunks are selected.
+- The vector database performs semantic retrieval using FAISS or Chroma.
+- A BM25 retriever performs keyword-based ranking over the same chunks.
+- Scores from both retrieval methods are normalized and combined using weighted fusion.
+- The top-ranked chunks are selected as contextual evidence.
 - These chunks are provided to the language model as context.
 - The model generates a grounded response based only on retrieved information.
 
@@ -124,7 +132,7 @@ It can be extended into:
 - Document compliance tools  
 - AI-powered search engines  
 
-The modular design allows for future enhancements such as hybrid retrieval (BM25 + vector search), cross-encoder reranking, advanced chunking strategies, and evaluation benchmarking.
+The modular design already supports hybrid retrieval and can be extended further with cross-encoder re-ranking, advanced chunking strategies, and retrieval evaluation benchmarking.
 
 ---
 
@@ -136,9 +144,10 @@ DIRS is built using the following technologies:
 - **Ollama** — Local LLM serving framework
 - **LLaMA (via Ollama)** — Large language model for answer generation
 - **Qwen (via Ollama)** — Alternative LLM for contextual reasoning
-- **Sentence Transformers / Embedding Models** — Text embedding generation
+- **Sentence Transformers** — Embedding generation
 - **FAISS / ChromaDB** — Vector database for semantic retrieval
 - **PyPDF / PDF Parsing Libraries** — Document text extraction
+- **rank-bm25** — Keyword-based retrieval engine
 - **NumPy / Pandas** — Data handling and experiment tracking
 - **Git & GitHub** — Version control
 
