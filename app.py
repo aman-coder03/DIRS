@@ -4,12 +4,9 @@ import streamlit as st
 
 from experiment_logger import log_experiment
 from rag_engine import build_index, query_index
+from config import STORAGE_PATH, UPLOAD_PATH, TOP_K
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STORAGE_PATH = os.path.join(BASE_DIR, "storage")
-DATA_UPLOAD_PATH = os.path.join(BASE_DIR, "uploaded_docs")
-
-os.makedirs(DATA_UPLOAD_PATH, exist_ok=True)
+os.makedirs(UPLOAD_PATH, exist_ok=True)
 
 st.set_page_config(page_title="DIRS", layout="wide")
 st.title("Document Intelligence & Retrieval System (DIRS)")
@@ -40,7 +37,7 @@ if menu == "Admin":
         if uploaded_file is None:
             st.error("Please upload a PDF first.")
         else:
-            file_path = os.path.join(DATA_UPLOAD_PATH, uploaded_file.name)
+            file_path = os.path.join(UPLOAD_PATH, uploaded_file.name)
 
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.read())
@@ -109,7 +106,7 @@ if menu == "User":
                                 document_name=selected_doc,
                                 question=question,
                                 llm_model=llm_model,
-                                top_k=3   #adjustable
+                                top_k=TOP_K
                             )
 
                         if "error" in result:

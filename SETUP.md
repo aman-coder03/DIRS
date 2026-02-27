@@ -191,6 +191,7 @@ DIRS/
 ├── rag_engine.py           # Core RAG pipeline (build & query)
 ├── experiment_logger.py    # CSV experiment logging
 ├── main.py                 # CLI entry point (alternative to Streamlit)
+├── config.py               # Centralized configuration (paths, models, parameters)
 ├── requirements.txt        # Python dependencies
 │
 ├── rag/
@@ -223,22 +224,18 @@ DIRS/
 
 ## 8. Configuration
 
-The following parameters can be adjusted directly in `rag_engine.py`:
+All tunable parameters are centralized in `config.py` at the project root. You should not need to edit any other file to change pipeline behaviour.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `chunk_size` | `500` | Number of characters per chunk |
-| `overlap` | `50` | Overlap between consecutive chunks |
-| `top_k` | `3` | Number of chunks retrieved per query |
-| Vector weight | `0.6` | Weight given to semantic (vector) score in hybrid fusion |
-| BM25 weight | `0.4` | Weight given to keyword (BM25) score in hybrid fusion |
-
-In `app.py`, `top_k` is set at line:
-```python
-result = query_index(..., top_k=3)
-```
-
-Change this value to retrieve more or fewer source chunks per query.
+| `CHUNK_SIZE` | `500` | Number of characters per chunk |
+| `CHUNK_OVERLAP` | `50` | Overlap between consecutive chunks |
+| `TOP_K` | `3` | Number of chunks retrieved per query |
+| `VECTOR_WEIGHT` | `0.6` | Weight given to semantic (vector) score in hybrid fusion |
+| `BM25_WEIGHT` | `0.4` | Weight given to keyword (BM25) score in hybrid fusion |
+| `DEFAULT_EMBEDDING_MODEL` | `BGE-small` | Default embedding model for CLI (`main.py`) |
+| `DEFAULT_LLM_MODEL` | `llama3:latest` | Default LLM for CLI (`main.py`) |
+| `MAX_NEW_TOKENS` | `150` | Maximum tokens the LLM generates per answer |
 
 ---
 

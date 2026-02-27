@@ -1,280 +1,293 @@
+"""
+rag_engine.py
+-------------
+Core RAG pipeline: document indexing (Admin) and query execution (User).
+
+build_index() — ingests a PDF, creates embeddings, and persists the index.
+query_index() — loads a stored index and answers a natural language question.
+"""
+
 import os
 import time
 import json
+import logging
+
 import faiss
 import chromadb
 import numpy as np
 
-from chromadb.config import Settings
-
 from rag.pdf_loader import load_pdf
 from rag.chunker import chunk_text
-from rag.bm25_retriever import BM25Retriever
-from rag.bm25_retriever import tokenize
+from rag.bm25_retriever import BM25Retriever, tokenize
 from models.embedding import embed
 from models.llm import generate_answer
+from config import (
+    STORAGE_PATH,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    TOP_K,
+    VECTOR_WEIGHT,
+    BM25_WEIGHT,
+)
 
-BM25_CACHE = {}
-FAISS_CACHE = {}
-CHUNKS_CACHE = {}
+logger = logging.getLogger(__name__)
 
-# Always create storage relative to this file
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STORAGE_PATH = os.path.join(BASE_DIR, "storage")
+# ── In-process caches (avoid reloading indices on every query) ────────────────
+_bm25_cache:   dict = {}
+_faiss_cache:  dict = {}
+_chunks_cache: dict = {}
 
-# ADMIN SIDE
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN: Build Index
+# ─────────────────────────────────────────────────────────────────────────────
+
 def build_index(
-    pdf_path,
-    embedding_model,
-    vector_db="FAISS",
-    chunk_size=500,
-    overlap=50
-):
+    pdf_path: str,
+    embedding_model: str,
+    vector_db: str = "FAISS",
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+) -> None:
     """
-    Builds vector index for a given PDF and saves it locally.
-    """
+    Ingest a PDF document, generate embeddings, and persist the index to disk.
 
+    Args:
+        pdf_path:        Path to the source PDF file.
+        embedding_model: Embedding model key (e.g. 'BGE-small').
+        vector_db:       Vector database to use: 'FAISS' or 'Chroma'.
+        chunk_size:      Number of characters per text chunk.
+        overlap:         Character overlap between consecutive chunks.
+
+    Raises:
+        FileExistsError: If an index already exists for this document.
+        ValueError:      If an unsupported vector_db is specified.
+    """
     os.makedirs(STORAGE_PATH, exist_ok=True)
 
     document_name = os.path.splitext(os.path.basename(pdf_path))[0]
     document_folder = os.path.join(STORAGE_PATH, document_name)
 
-    # Overwrite protection
     if os.path.exists(document_folder):
-        raise Exception(
+        raise FileExistsError(
             f"Index already exists for '{document_name}'. "
-            f"Delete the folder to rebuild."
+            f"Enable 'Force Rebuild' to overwrite."
         )
 
-    os.makedirs(document_folder, exist_ok=True)
+    os.makedirs(document_folder)
+    logger.info("Building index for '%s' | embedding=%s | db=%s", document_name, embedding_model, vector_db)
 
-    print(f"Building index for: {document_name}")
-    print(f"Using Embedding Model: {embedding_model}")
-    print(f"Using Vector DB: {vector_db}")
-
-    # Load PDF
+    # ── Load & chunk ──────────────────────────────────────────────────────────
     text = load_pdf(pdf_path)
-
-    # Chunk
     chunks = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
-    
-    # Save tokenized chunks for BM25
+
+    # ── Persist tokenized chunks for BM25 ────────────────────────────────────
     tokenized_chunks = [tokenize(chunk) for chunk in chunks]
+    _write_json(os.path.join(document_folder, "tokenized_chunks.json"), tokenized_chunks)
 
-    with open(os.path.join(document_folder, "tokenized_chunks.json"), "w", encoding="utf-8") as f:
-        json.dump(tokenized_chunks, f)
+    # ── Embed ─────────────────────────────────────────────────────────────────
+    embeddings = np.array(embed(chunks, model_name=embedding_model)).astype("float32")
 
-    # Embed
-    embeddings = embed(chunks, model_name=embedding_model)
-    embeddings = np.array(embeddings).astype("float32")
-
-    # VECTOR DATABASE SELECTION
+    # ── Persist vector index ──────────────────────────────────────────────────
     if vector_db == "FAISS":
-
-        dim = embeddings.shape[1]
-        index = faiss.IndexFlatL2(dim)
+        index = faiss.IndexFlatL2(embeddings.shape[1])
         index.add(embeddings)
-
         faiss.write_index(index, os.path.join(document_folder, "index.faiss"))
 
     elif vector_db == "Chroma":
-
-        chroma_client = chromadb.PersistentClient(path=document_folder)
-
-        collection = chroma_client.get_or_create_collection("rag_collection")
-
+        client = chromadb.PersistentClient(path=document_folder)
+        collection = client.get_or_create_collection("rag_collection")
         for i, chunk in enumerate(chunks):
             collection.add(
                 documents=[chunk],
                 embeddings=[embeddings[i].tolist()],
-                ids=[str(i)]
+                ids=[str(i)],
             )
 
     else:
-        raise ValueError("Unsupported vector database selected.")
+        raise ValueError(f"Unsupported vector database: '{vector_db}'. Choose 'FAISS' or 'Chroma'.")
 
-    # Save chunks (for FAISS retrieval)
-    with open(os.path.join(document_folder, "chunks.json"), "w", encoding="utf-8") as f:
-        json.dump(chunks, f)
+    # ── Persist chunks & metadata ─────────────────────────────────────────────
+    _write_json(os.path.join(document_folder, "chunks.json"), chunks)
+    _write_json(
+        os.path.join(document_folder, "metadata.json"),
+        {
+            "embedding_model": embedding_model,
+            "vector_db": vector_db,
+            "chunk_size": chunk_size,
+            "overlap": overlap,
+            "chunk_count": len(chunks),
+        },
+    )
 
-    # Save metadata
-    metadata = {
-        "embedding_model": embedding_model,
-        "vector_db": vector_db,
-        "chunk_size": chunk_size,
-        "overlap": overlap,
-        "chunk_count": len(chunks)
-    }
-
-    with open(os.path.join(document_folder, "metadata.json"), "w") as f:
-        json.dump(metadata, f, indent=4)
-
-    print("Index built and saved successfully.")
+    logger.info("Index built successfully for '%s' (%d chunks).", document_name, len(chunks))
 
 
-# USER SIDE
-def query_index(document_name, question, llm_model="llama3", top_k=3):
+# ─────────────────────────────────────────────────────────────────────────────
+# USER: Query Index
+# ─────────────────────────────────────────────────────────────────────────────
+
+def query_index(
+    document_name: str,
+    question: str,
+    llm_model: str = "llama3:latest",
+    top_k: int = TOP_K,
+) -> dict:
     """
-    Loads stored index and answers question.
-    Returns answer + retrieved chunks + performance metrics.
-    """
+    Load a stored index and answer a natural language question.
 
+    Uses a hybrid retrieval strategy (semantic + BM25) for FAISS indices.
+
+    Args:
+        document_name: Name of the indexed document (without extension).
+        question:      Natural language question string.
+        llm_model:     Ollama model identifier for answer generation.
+        top_k:         Number of chunks to retrieve.
+
+    Returns:
+        Dictionary with keys:
+            'answer'           — Generated answer string.
+            'retrieved_chunks' — List of source text chunks used as context.
+            'metrics'          — Performance and configuration metadata.
+        On failure, returns {'error': <message>}.
+    """
     document_folder = os.path.join(STORAGE_PATH, document_name)
 
     if not os.path.exists(document_folder):
-        return {"error": "Document not found."}
+        logger.warning("Document not found: '%s'", document_name)
+        return {"error": f"No index found for document '{document_name}'."}
 
     total_start = time.time()
 
-    # Load metadata
-    with open(os.path.join(document_folder, "metadata.json"), "r") as f:
-        metadata = json.load(f)
-
+    # ── Load metadata ─────────────────────────────────────────────────────────
+    metadata = _read_json(os.path.join(document_folder, "metadata.json"))
     embedding_model = metadata["embedding_model"]
     vector_db = metadata["vector_db"]
 
-    # EMBEDDING QUERY
-    embed_start = time.time()
-    query_embedding = embed([question], model_name=embedding_model)[0]
-    query_embedding = np.array([query_embedding]).astype("float32")
-    embedding_time = time.time() - embed_start
+    # ── Embed query ───────────────────────────────────────────────────────────
+    t0 = time.time()
+    query_vec = np.array([embed([question], model_name=embedding_model)[0]]).astype("float32")
+    embedding_time = time.time() - t0
 
-    # RETRIEVAL
-    retrieval_start = time.time()
+    # ── Retrieve ──────────────────────────────────────────────────────────────
+    t0 = time.time()
 
     if vector_db == "FAISS":
-
-        # FAISS CACHING
-        if document_name not in FAISS_CACHE:
-            index_path = os.path.join(document_folder, "index.faiss")
-            FAISS_CACHE[document_name] = faiss.read_index(index_path)
-
-        index = FAISS_CACHE[document_name]
-
-        if document_name not in CHUNKS_CACHE:
-            with open(os.path.join(document_folder, "chunks.json"), "r", encoding="utf-8") as f:
-                CHUNKS_CACHE[document_name] = json.load(f)
-
-        chunks = CHUNKS_CACHE[document_name]
-
-        # VECTOR RETRIEVAL
-        distances, indices = index.search(query_embedding, top_k)
-        vector_indices = indices[0]
-        vector_distances = distances[0]
-
-        # Convert L2 distance → similarity score
-        vector_scores = {
-            chunks[idx]: 1 / (1 + dist)
-            for idx, dist in zip(vector_indices, vector_distances)
-        }
-
-        # BM25 RETRIEVAL
-        # BM25 CACHING
-        if document_name not in BM25_CACHE:
-
-            # Load tokenized chunks
-            with open(os.path.join(document_folder, "tokenized_chunks.json"), "r", encoding="utf-8") as f:
-                tokenized_chunks = json.load(f)
-
-            BM25_CACHE[document_name] = BM25Retriever(
-                documents=chunks,
-                tokenized_docs=tokenized_chunks
-            )
-
-        bm25 = BM25_CACHE[document_name]
-        bm25_results = bm25.retrieve(question, top_k=top_k)
-
-        # Normalize BM25 scores
-        if bm25_results:
-            max_bm25 = max(score for _, score in bm25_results)
-        else:
-            max_bm25 = 1
-
-        bm25_scores = {
-            chunk: (score / max_bm25) if max_bm25 > 0 else 0
-            for chunk, score in bm25_results
-        }
-
-        # HYBRID MERGE
-        combined_scores = {}
-
-        all_chunks = set(vector_scores.keys()) | set(bm25_scores.keys())
-
-        for chunk in all_chunks:
-            v_score = vector_scores.get(chunk, 0)
-            b_score = bm25_scores.get(chunk, 0)
-
-            # Weighted fusion (tune weights later)
-            combined_scores[chunk] = 0.6 * v_score + 0.4 * b_score
-
-        # Sort final
-        sorted_chunks = sorted(
-            combined_scores.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-
-        retrieved_chunks = [chunk for chunk, _ in sorted_chunks[:top_k]]
+        retrieved_chunks = _hybrid_retrieve(document_name, document_folder, query_vec, question, top_k)
 
     elif vector_db == "Chroma":
-
-        chroma_client = chromadb.PersistentClient(path=document_folder)
-        collection = chroma_client.get_collection("rag_collection")
-
+        client = chromadb.PersistentClient(path=document_folder)
+        collection = client.get_collection("rag_collection")
         results = collection.query(
-            query_embeddings=[query_embedding[0].tolist()],
-            n_results=top_k
+            query_embeddings=[query_vec[0].tolist()],
+            n_results=top_k,
         )
-
         retrieved_chunks = results["documents"][0]
 
     else:
-        return {"error": "Unsupported vector database."}
+        return {"error": f"Unsupported vector database: '{vector_db}'."}
 
-    retrieval_time = time.time() - retrieval_start
+    retrieval_time = time.time() - t0
 
-    # GENERATION
+    # ── Generate answer ───────────────────────────────────────────────────────
     context = "\n".join(retrieved_chunks)
-
-    prompt = f"""
-Answer concisely in 4-5 lines using only the context.
-Do not elaborate.
-
-Context:
-{context}
-
-Question:
-{question}
-"""
-
-    prompt_length_chars = len(prompt)
-
-    generation_start = time.time()
-    answer = generate_answer(prompt, model_name=llm_model)
-    generation_time = time.time() - generation_start
-
-    answer_length_chars = len(answer)
-
-    approx_tokens_generated = len(answer.split())
-    tokens_per_second = (
-        approx_tokens_generated / generation_time
-        if generation_time > 0 else 0
+    prompt = (
+        "Answer concisely in 4-5 lines using only the context below.\n"
+        "Do not elaborate or add information outside the context.\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question:\n{question}"
     )
 
+    t0 = time.time()
+    answer = generate_answer(prompt, model_name=llm_model)
+    generation_time = time.time() - t0
+
     total_time = time.time() - total_start
+    approx_tokens = len(answer.split())
 
     return {
         "answer": answer,
         "retrieved_chunks": retrieved_chunks,
         "metrics": {
-            "embedding_time": round(embedding_time, 4),
-            "retrieval_time": round(retrieval_time, 4),
-            "generation_time": round(generation_time, 4),
-            "total_time": round(total_time, 4),
-            "tokens_per_second": round(tokens_per_second, 2),
-            "prompt_length_chars": prompt_length_chars,
-            "answer_length_chars": answer_length_chars,
-            "vector_db": vector_db,
-            "embedding_model": embedding_model
-        }
+            "embedding_model":    embedding_model,
+            "vector_db":          vector_db,
+            "embedding_time":     round(embedding_time, 4),
+            "retrieval_time":     round(retrieval_time, 4),
+            "generation_time":    round(generation_time, 4),
+            "total_time":         round(total_time, 4),
+            "tokens_per_second":  round(approx_tokens / generation_time, 2) if generation_time > 0 else 0,
+            "prompt_length_chars": len(prompt),
+            "answer_length_chars": len(answer),
+        },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _hybrid_retrieve(
+    document_name: str,
+    document_folder: str,
+    query_vec: np.ndarray,
+    question: str,
+    top_k: int,
+) -> list[str]:
+    """
+    Combine FAISS vector search and BM25 keyword search using weighted score fusion.
+
+    Weights are controlled by VECTOR_WEIGHT and BM25_WEIGHT in config.py.
+    """
+    # ── FAISS (cached) ────────────────────────────────────────────────────────
+    if document_name not in _faiss_cache:
+        _faiss_cache[document_name] = faiss.read_index(
+            os.path.join(document_folder, "index.faiss")
+        )
+    if document_name not in _chunks_cache:
+        _chunks_cache[document_name] = _read_json(
+            os.path.join(document_folder, "chunks.json")
+        )
+
+    index  = _faiss_cache[document_name]
+    chunks = _chunks_cache[document_name]
+
+    distances, indices = index.search(query_vec, top_k)
+    vector_scores = {
+        chunks[idx]: 1 / (1 + dist)
+        for idx, dist in zip(indices[0], distances[0])
+    }
+
+    # ── BM25 (cached) ─────────────────────────────────────────────────────────
+    if document_name not in _bm25_cache:
+        tokenized_chunks = _read_json(
+            os.path.join(document_folder, "tokenized_chunks.json")
+        )
+        _bm25_cache[document_name] = BM25Retriever(
+            documents=chunks,
+            tokenized_docs=tokenized_chunks,
+        )
+
+    bm25_results = _bm25_cache[document_name].retrieve(question, top_k=top_k)
+    max_bm25 = max((score for _, score in bm25_results), default=1) or 1
+    bm25_scores = {chunk: score / max_bm25 for chunk, score in bm25_results}
+
+    # ── Weighted fusion ───────────────────────────────────────────────────────
+    all_chunks = set(vector_scores) | set(bm25_scores)
+    combined = {
+        chunk: VECTOR_WEIGHT * vector_scores.get(chunk, 0)
+              + BM25_WEIGHT  * bm25_scores.get(chunk, 0)
+        for chunk in all_chunks
+    }
+
+    ranked = sorted(combined.items(), key=lambda x: x[1], reverse=True)
+    return [chunk for chunk, _ in ranked[:top_k]]
+
+
+def _write_json(path: str, data) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+def _read_json(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)

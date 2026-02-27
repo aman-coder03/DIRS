@@ -1,29 +1,51 @@
+"""
+embedding.py
+------------
+Generates text embeddings using Sentence Transformers.
+Models are loaded once and cached in memory for the lifetime of the process.
+"""
+
+import logging
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer(
-    "BAAI/bge-small-en",
-    local_files_only=True
-)
+logger = logging.getLogger(__name__)
 
-# Cache loaded models so we don't reload every time
-_loaded_models = {}
+# ── Model registry ────────────────────────────────────────────────────────────
+MODEL_MAP = {
+    "BGE-small": "BAAI/bge-small-en",
+    "MiniLM":    "sentence-transformers/all-MiniLM-L6-v2",
+    "E5-small":  "intfloat/e5-small-v2",
+}
 
-def embed(texts, model_name="BGE-small"):
-    model_map = {
-        "BGE-small": "BAAI/bge-small-en",
-        "MiniLM": "sentence-transformers/all-MiniLM-L6-v2",
-        "E5-small": "intfloat/e5-small-v2"
-    }
+# In-process model cache — avoids reloading on every call
+_loaded_models: dict[str, SentenceTransformer] = {}
 
-    if model_name not in model_map:
-        raise ValueError(f"Unsupported embedding model: {model_name}")
 
-    hf_model_name = model_map[model_name]
+def embed(texts: list[str], model_name: str = "BGE-small") -> list:
+    """
+    Embed a list of texts using the specified model.
 
-    # Load once and reuse
-    if hf_model_name not in _loaded_models:
-        _loaded_models[hf_model_name] = SentenceTransformer(hf_model_name)
+    Args:
+        texts:      List of strings to embed.
+        model_name: Key from MODEL_MAP. Defaults to 'BGE-small'.
 
-    model = _loaded_models[hf_model_name]
+    Returns:
+        List of embedding vectors (numpy arrays).
 
+    Raises:
+        ValueError: If model_name is not in MODEL_MAP.
+    """
+    if model_name not in MODEL_MAP:
+        raise ValueError(
+            f"Unsupported embedding model: '{model_name}'. "
+            f"Choose from: {list(MODEL_MAP.keys())}"
+        )
+
+    hf_name = MODEL_MAP[model_name]
+
+    if hf_name not in _loaded_models:
+        logger.info("Loading embedding model: %s", hf_name)
+        _loaded_models[hf_name] = SentenceTransformer(hf_name)
+
+    model = _loaded_models[hf_name]
     return model.encode(texts)
