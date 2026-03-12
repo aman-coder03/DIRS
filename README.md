@@ -1,4 +1,4 @@
-# DIRS — Document Intelligence & Retrieval System
+# DIRS — Document Intelligence & Retrieval System 
 
 DIRS is a modular Retrieval-Augmented Generation (RAG) system built in Python. Upload any PDF document and ask natural language questions about its content — entirely on-premises, with no cloud APIs or external data transfer.
 
