@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import streamlit as st
 
 from experiment_logger import log_experiment
@@ -14,6 +15,15 @@ st.set_page_config(page_title="DIRS", layout="wide")
 st.title("Document Intelligence & Retrieval System (DIRS)")
 
 menu = st.sidebar.radio("Select Role", ["Admin", "User"])
+
+def safe_delete(path):
+    for _ in range(3):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError:
+            time.sleep(1)
+    raise PermissionError(f"Could not delete {path}, file is locked.")
 
 # ADMIN PANEL
 if menu == "Admin":
@@ -50,8 +60,13 @@ if menu == "Admin":
             # Overwrite handling
             if os.path.exists(document_folder):
                 if force_rebuild:
-                    shutil.rmtree(document_folder)
-                    st.warning("Existing index deleted. Rebuilding...")
+                    time.sleep(1)  # allow file handles to release
+                    try:
+                        safe_delete(document_folder)
+                        st.warning("Existing index deleted. Rebuilding...")
+                    except PermissionError:
+                        st.error("File is currently in use. Please restart the app and try again.")
+                        st.stop()
                 else:
                     st.error(
                         "Index already exists. Enable 'Force Rebuild' to overwrite."
