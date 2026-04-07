@@ -1,33 +1,47 @@
-# Core
-python-dotenv
-numpy
-pandas
 
-# PDF Processing
-pypdf
-pymupdf
+# Python Cache & Build Files
+# Compiled Python files and cache directories
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 
-# Embeddings
-sentence-transformers
-transformers
-torch
+# Python distribution / packaging
+.Python
+*.egg-info/
+dist/
+build/
 
-# Vector Databases
-faiss-cpu
-chromadb
+# Virtual Environments
+# Local virtual environments (should never be committed)
+venv/
+.venv/
+env/
 
-# Retrieval
-rank-bm25
+# Runtime Data (Generated During Execution)
+# These folders are created automatically when the app runs
+# and contain user-specific or temporary data
+storage/
+uploaded_docs/
+results/
 
-# Ollama Client
-ollama
+# Input Data (User-provided)
+# Ignore PDF files added by users for indexing
+data/*.pdf
 
-# Web Interface
-streamlit
+# Environment Variables
+# Sensitive configuration (API keys, secrets, etc.)
+.env
 
-# Utilities
-scikit-learn
-tqdm
+# IDE & OS Files
+# Editor settings and system-generated files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
-# Testing
-pytest
+# Testing & Coverage
+# Pytest cache and coverage reports
+.pytest_cache/
+.coverage
+htmlcov/

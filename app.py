@@ -7,6 +7,8 @@ from rag_engine import build_index, query_index
 from config import STORAGE_PATH, UPLOAD_PATH, TOP_K
 
 os.makedirs(UPLOAD_PATH, exist_ok=True)
+os.makedirs(STORAGE_PATH, exist_ok=True)
+os.makedirs("results", exist_ok=True)
 
 st.set_page_config(page_title="DIRS", layout="wide")
 st.title("Document Intelligence & Retrieval System (DIRS)")
@@ -75,7 +77,7 @@ if menu == "User":
 
     st.header("Ask Questions")
 
-    if not os.path.exists(STORAGE_PATH):
+    if not os.path.exists(STORAGE_PATH) or not os.listdir(STORAGE_PATH):
         st.warning("No documents indexed yet.")
     else:
         documents = [
