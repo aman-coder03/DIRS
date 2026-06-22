@@ -18,8 +18,6 @@ storage/
 uploaded_docs/
 results/
 
-# ── Data folder (add your own PDFs, don't commit them) ────────────────────────
-data/*.pdf
 
 # ── Environment variables ─────────────────────────────────────────────────────
 .env

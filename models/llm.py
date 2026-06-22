@@ -2,10 +2,12 @@
 llm.py
 ------
 Interfaces with a locally running Ollama server to generate answers.
+Supports both full-response and token-streaming modes.
 """
 
 import logging
 import ollama
+from typing import Generator
 
 from config import MAX_NEW_TOKENS
 
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def generate_answer(prompt: str, model_name: str = "llama3:latest") -> str:
     """
-    Send a prompt to the specified Ollama model and return the generated text.
+    Send a prompt to the specified Ollama model and return the full generated text.
 
     Args:
         prompt:     The full prompt string to send to the model.
@@ -40,6 +42,43 @@ def generate_answer(prompt: str, model_name: str = "llama3:latest") -> str:
         logger.error("LLM generation failed: %s", e)
         raise RuntimeError(
             f"Could not generate answer using '{model_name}'. "
+            f"Ensure Ollama is running and the model has been pulled.\n"
+            f"Details: {e}"
+        ) from e
+
+
+def stream_answer(prompt: str, model_name: str = "llama3:latest") -> Generator[str, None, None]:
+    """
+    Stream tokens from the Ollama model one by one.
+
+    Args:
+        prompt:     The full prompt string to send to the model.
+        model_name: Ollama model identifier (e.g. 'llama3:latest').
+
+    Yields:
+        Individual token strings as they are generated.
+
+    Raises:
+        RuntimeError: If the Ollama server is unreachable or the model is not found.
+    """
+    logger.info("Streaming answer with model: %s", model_name)
+
+    try:
+        stream = ollama.chat(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            options={"num_predict": MAX_NEW_TOKENS},
+            stream=True,
+        )
+        for chunk in stream:
+            token = chunk["message"]["content"]
+            if token:
+                yield token
+
+    except Exception as e:
+        logger.error("LLM streaming failed: %s", e)
+        raise RuntimeError(
+            f"Could not stream answer using '{model_name}'. "
             f"Ensure Ollama is running and the model has been pulled.\n"
             f"Details: {e}"
         ) from e
