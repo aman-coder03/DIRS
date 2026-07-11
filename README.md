@@ -69,8 +69,8 @@ User Question → Query Embedding → Hybrid Retrieval (Vector + BM25)
 ### User Interface
 ![User](assets/user.png)
 
-### Answer with Performance Metrics
-![Analysis](assets/analysis.png)
+### Displayed Answer
+![Analysis](assets/query.png)
 
 ### Retrieved Sources
 ![Sources](assets/sources.png)
